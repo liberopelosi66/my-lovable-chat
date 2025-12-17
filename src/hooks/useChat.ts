@@ -1,5 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Message } from "@/components/ChatMessage";
+import { Conversation } from "@/components/ChatHistory";
+
+const STORAGE_KEY = "chat_history";
 
 // Mock analytical responses for demonstration
 const getMockAnalyticalResponse = (question: string): Omit<Message, "id"> => {
@@ -83,7 +86,6 @@ ORDER BY (i.quantity::float / i.reorder_point) ASC;`,
     };
   }
 
-  // Default response for other questions
   return {
     role: "assistant",
     content: "I've analyzed your question. Here's a sample query and results:",
@@ -103,9 +105,41 @@ LIMIT 10;`,
   };
 };
 
+const loadConversations = (): Conversation[] => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return parsed.map((c: any) => ({
+        ...c,
+        createdAt: new Date(c.createdAt),
+      }));
+    }
+  } catch (e) {
+    console.error("Error loading conversations:", e);
+  }
+  return [];
+};
+
+const saveConversations = (conversations: Conversation[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+  } catch (e) {
+    console.error("Error saving conversations:", e);
+  }
+};
+
 export const useChat = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const activeConversation = conversations.find((c) => c.id === activeConversationId);
+  const messages = activeConversation?.messages || [];
+
+  useEffect(() => {
+    saveConversations(conversations);
+  }, [conversations]);
 
   const sendMessage = useCallback(async (content: string) => {
     const userMessage: Message = {
@@ -114,20 +148,44 @@ export const useChat = () => {
       content,
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    let currentConvId = activeConversationId;
+
+    // Create new conversation if none active
+    if (!currentConvId) {
+      const newConv: Conversation = {
+        id: crypto.randomUUID(),
+        title: content.slice(0, 40) + (content.length > 40 ? "..." : ""),
+        createdAt: new Date(),
+        messages: [],
+      };
+      currentConvId = newConv.id;
+      setConversations((prev) => [newConv, ...prev]);
+      setActiveConversationId(currentConvId);
+    }
+
+    // Add user message
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === currentConvId ? { ...c, messages: [...c.messages, userMessage] } : c
+      )
+    );
+
     setIsLoading(true);
 
     try {
-      // Simulated delay for demo
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      
+
       const mockResponse = getMockAnalyticalResponse(content);
       const aiMessage: Message = {
         id: crypto.randomUUID(),
         ...mockResponse,
       };
 
-      setMessages((prev) => [...prev, aiMessage]);
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === currentConvId ? { ...c, messages: [...c.messages, aiMessage] } : c
+        )
+      );
     } catch (error) {
       console.error("Error sending message:", error);
       const errorMessage: Message = {
@@ -135,20 +193,39 @@ export const useChat = () => {
         role: "assistant",
         content: "Sorry, there was an error processing your request. Please try again.",
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === currentConvId ? { ...c, messages: [...c.messages, errorMessage] } : c
+        )
+      );
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [activeConversationId]);
 
   const clearMessages = useCallback(() => {
-    setMessages([]);
+    setActiveConversationId(null);
   }, []);
+
+  const selectConversation = useCallback((id: string) => {
+    setActiveConversationId(id);
+  }, []);
+
+  const deleteConversation = useCallback((id: string) => {
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    if (activeConversationId === id) {
+      setActiveConversationId(null);
+    }
+  }, [activeConversationId]);
 
   return {
     messages,
     isLoading,
     sendMessage,
     clearMessages,
+    conversations,
+    activeConversationId,
+    selectConversation,
+    deleteConversation,
   };
 };
