@@ -1,10 +1,17 @@
 import { User, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import SQLCodeBlock from "./SQLCodeBlock";
+import DataTable from "./DataTable";
 
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  sql?: string;
+  data?: {
+    columns: string[];
+    rows: Record<string, unknown>[];
+  };
 }
 
 interface ChatMessageProps {
@@ -36,6 +43,10 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
           <div className="text-foreground leading-relaxed whitespace-pre-wrap break-words">
             {message.content}
           </div>
+          {message.sql && <SQLCodeBlock sql={message.sql} />}
+          {message.data && (
+            <DataTable columns={message.data.columns} rows={message.data.rows} />
+          )}
         </div>
       </div>
     </div>
